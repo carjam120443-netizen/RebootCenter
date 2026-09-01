@@ -33,6 +33,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    implementation("dev.rikka.shizuku:api:13.6.0")
-    implementation("dev.rikka.shizuku:provider:13.6.0")
+    // Shizuku API artifacts currently available from Maven Central.
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
