@@ -20,7 +20,7 @@ A modern Android reboot and device-control center with a clean Jetpack Compose i
 
 RebootCenter is designed to use Shizuku for operations that are available through its privileged shell interface. The app **does not bypass Android security restrictions**. If an operation is unavailable on a particular Android version or device, RebootCenter should report that state instead of pretending it succeeded.
 
-The current Shizuku release line is **13.6.x**, which includes Android 16 QPR1 support. citeturn0search2
+RebootCenter currently targets the Shizuku 13.6.x API line. Shizuku 13.6.0 adds Android 16 QPR1 support.
 
 You must install and start Shizuku separately and grant RebootCenter permission before features that require Shizuku can work.
 
