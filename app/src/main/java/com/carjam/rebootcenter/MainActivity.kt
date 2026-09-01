@@ -79,6 +79,7 @@ private fun requestShizukuPermission() {
 private object ShizukuCommandRunner {
     private var service: IBinder? = null
     private var connection: ServiceConnection? = null
+    private val waitLock = Object()
 
     fun bind() {
         if (!hasShizukuPermission() || service != null || connection != null) return
@@ -93,18 +94,17 @@ private object ShizukuCommandRunner {
 
         val newConnection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-                synchronized(this@ShizukuCommandRunner) {
+                synchronized(waitLock) {
                     service = binder
-                    (this@ShizukuCommandRunner as Any).let { }
-                    this@ShizukuCommandRunner.notifyServiceConnected()
+                    waitLock.notifyAll()
                 }
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
-                synchronized(this@ShizukuCommandRunner) {
+                synchronized(waitLock) {
                     service = null
                     connection = null
-                    notifyAllWaiters()
+                    waitLock.notifyAll()
                 }
             }
         }
@@ -113,32 +113,22 @@ private object ShizukuCommandRunner {
         runCatching {
             Shizuku.bindUserService(args, newConnection)
         }.onFailure {
-            service = null
-            connection = null
-            synchronized(this) { notifyAllWaiters() }
+            synchronized(waitLock) {
+                service = null
+                connection = null
+                waitLock.notifyAll()
+            }
         }
     }
-
-    private fun notifyServiceConnected() {
-        notifyAllWaiters()
-    }
-
-    private fun notifyAllWaiters() {
-        synchronized(waitLock) { waitLock.notifyAll() }
-    }
-
-    private val waitLock = Object()
 
     fun run(command: String, onResult: (String) -> Unit) {
         Thread {
             bind()
 
             val deadline = System.currentTimeMillis() + 5000
-            while (service == null && connection != null && System.currentTimeMillis() < deadline) {
-                synchronized(waitLock) {
-                    if (service == null) {
-                        runCatching { waitLock.wait(250) }
-                    }
+            synchronized(waitLock) {
+                while (service == null && connection != null && System.currentTimeMillis() < deadline) {
+                    runCatching { waitLock.wait(250) }
                 }
             }
 
