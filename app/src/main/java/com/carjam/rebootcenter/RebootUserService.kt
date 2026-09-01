@@ -1,5 +1,7 @@
 package com.carjam.rebootcenter
 
+import android.app.Service
+import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import android.os.Parcel
@@ -7,19 +9,24 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 /**
- * Shizuku UserService that runs reboot commands with Shizuku's shell/root identity.
- * The service communicates with MainActivity through a small Binder transaction.
+ * Shizuku UserService that runs reboot commands with Shizuku's shell identity.
+ * The service communicates with MainActivity through a Binder transaction.
  */
-class RebootUserService : Binder() {
-    override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
-        if (code == IBinder.FIRST_CALL_TRANSACTION) {
-            val command = data.readString().orEmpty()
-            val result = runCommand(command)
-            reply?.writeString(result)
-            return true
+class RebootUserService : Service() {
+
+    private val binder = object : Binder() {
+        override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+            if (code == IBinder.FIRST_CALL_TRANSACTION) {
+                val command = data.readString().orEmpty()
+                val result = runCommand(command)
+                reply?.writeString(result)
+                return true
+            }
+            return super.onTransact(code, data, reply, flags)
         }
-        return super.onTransact(code, data, reply, flags)
     }
+
+    override fun onBind(intent: Intent): IBinder = binder
 
     private fun runCommand(command: String): String {
         return try {
