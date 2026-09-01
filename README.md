@@ -1,55 +1,69 @@
 # ⚡ RebootCenter
 
-A modern Android reboot and device-control center with a clean Jetpack Compose interface and optional **Shizuku** integration.
+A modern Android reboot and device-control center built with **Kotlin + Jetpack Compose + Shizuku**.
 
-> 🚧 **Early development:** RebootCenter is currently a starter project. Device-specific capabilities and privileged actions are being added incrementally.
+## ✨ Current features
 
-## ✨ Planned features
-
-- 🔄 Restart / reboot
+- 🔄 Restart Android
 - ⚡ Reboot to bootloader / fastboot when supported
 - 🛠 Reboot to recovery when supported
 - 🔌 Power off when supported
-- 🔐 Shizuku connection and permission status
-- 📱 Device and Android version information
-- 🌙 Modern dark/light UI
-- 🎨 Animated Material-style controls
-- 🤖 GitHub Actions builds
+- 🔐 Detect whether Shizuku is running
+- 🔑 Request Shizuku permission from the app
+- 🟢 Enable reboot controls only after permission is granted
+- 🛡️ No bootloader unlocking, data wiping, or partition flashing
+- 🤖 Automatic APK builds with GitHub Actions
 
 ## 🔐 Shizuku
 
-RebootCenter is designed to use Shizuku for operations that are available through its privileged shell interface. The app **does not bypass Android security restrictions**. If an operation is unavailable on a particular Android version or device, RebootCenter should report that state instead of pretending it succeeded.
+RebootCenter uses the official Shizuku API for privileged operations. Shizuku provides access to Android system capabilities through its ADB/root-backed service, but ADB permissions are limited and can differ between Android versions. RebootCenter therefore treats unsupported operations as unavailable instead of trying to bypass Android security. citehttps://github.com/RikkaApps/Shizuku
 
-RebootCenter currently targets the Shizuku 13.6.x API line. Shizuku 13.6.0 adds Android 16 QPR1 support.
-
-You must install and start Shizuku separately and grant RebootCenter permission before features that require Shizuku can work.
+Install and start Shizuku separately, then grant RebootCenter permission when the app requests it.
 
 ## 🧰 Tech stack
 
 - Kotlin
 - Jetpack Compose
-- Android Gradle Plugin
 - Material 3
-- Shizuku API
+- Android Gradle Plugin 8.13
+- Shizuku API 13.6.0
 - GitHub Actions
 
-## 📦 Building
+## 🤖 Automatic APK builds
 
-Open the project in Android Studio and let Gradle sync. Then build the debug APK with:
+Every push to `main` automatically starts the **Build APK** GitHub Actions workflow.
+
+The workflow:
+
+1. Checks out the repository.
+2. Installs JDK 17.
+3. Sets up Gradle 8.13.
+4. Runs `gradle assembleDebug`.
+5. Uploads the resulting debug APK as the `RebootCenter-debug-apk` workflow artifact.
+
+You can also start the workflow manually with GitHub Actions → **Build APK** → **Run workflow**.
+
+## 📦 Local build
+
+Open the project in Android Studio and let Gradle sync, or run:
 
 ```bash
-./gradlew assembleDebug
+gradle assembleDebug
 ```
 
-The debug APK will be placed under `app/build/outputs/apk/debug/`.
+The APK is generated at:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
 ## 📱 Compatibility
 
-RebootCenter targets modern Android releases while keeping unsupported operations disabled gracefully. Actual reboot capabilities depend on Android version, device manufacturer, permissions, and whether Shizuku is running.
+Reboot behavior depends on the Android version, manufacturer, available shell permissions, and whether Shizuku is running. Bootloader and recovery targets are especially device-dependent.
 
 ## ⚠️ Safety
 
-Rebooting or powering off a device interrupts running applications and unsaved work. Bootloader/recovery operations can also behave differently across manufacturers. RebootCenter will not perform destructive actions such as wiping data as part of its normal reboot menu.
+Rebooting interrupts apps and can discard unsaved work. RebootCenter intentionally does **not** include destructive commands such as factory reset, bootloader unlocking, or partition flashing.
 
 ## 📄 License
 
