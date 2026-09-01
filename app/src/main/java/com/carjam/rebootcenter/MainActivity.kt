@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 
@@ -64,6 +66,10 @@ data class RebootAction(val icon: String, val title: String, val command: String
 
 private fun hasShizukuPermission(): Boolean = runCatching {
     Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+}.getOrDefault(false)
+
+private fun isShizukuRunning(): Boolean = runCatching {
+    Shizuku.pingBinder()
 }.getOrDefault(false)
 
 private fun requestShizukuPermission() {
@@ -150,8 +156,17 @@ private object ShizukuCommandRunner {
 private fun RebootCenterScreen() {
     var message by remember { mutableStateOf("Ready") }
     var permissionState by remember { mutableStateOf(hasShizukuPermission()) }
+    var shizukuRunning by remember { mutableStateOf(isShizukuRunning()) }
     val scope = rememberCoroutineScope()
-    val shizukuRunning = remember { runCatching { Shizuku.pingBinder() }.getOrDefault(false) }
+
+    // Keep the Shizuku status live instead of only checking it once when the UI starts.
+    LaunchedEffect(Unit) {
+        while (true) {
+            shizukuRunning = isShizukuRunning()
+            permissionState = hasShizukuPermission()
+            delay(1000)
+        }
+    }
 
     val actions = listOf(
         RebootAction("🔄", "Restart", "reboot", "Restart Android normally"),
