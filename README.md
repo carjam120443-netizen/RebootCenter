@@ -16,7 +16,9 @@ A modern Android reboot and device-control center built with **Kotlin + Jetpack 
 
 ## 🔐 Shizuku
 
-RebootCenter uses the official Shizuku API for privileged operations. Shizuku provides access to Android system capabilities through its ADB/root-backed service, but ADB permissions are limited and can differ between Android versions. RebootCenter therefore treats unsupported operations as unavailable instead of trying to bypass Android security. citehttps://github.com/RikkaApps/Shizuku
+RebootCenter uses the official Shizuku API for privileged operations. Shizuku provides access to Android system capabilities through its ADB/root-backed service, but ADB permissions are limited and can differ between Android versions. RebootCenter therefore treats unsupported operations as unavailable instead of trying to bypass Android security.
+
+Official Shizuku project: https://github.com/RikkaApps/Shizuku
 
 Install and start Shizuku separately, then grant RebootCenter permission when the app requests it.
 
