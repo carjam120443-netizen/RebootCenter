@@ -1,5 +1,6 @@
 package com.carjam.rebootcenter
 
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,35 +23,75 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuRemoteProcess
+
+private const val SHIZUKU_PERMISSION_CODE = 100
 
 class MainActivity : ComponentActivity() {
+    private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, _ ->
+        if (requestCode == SHIZUKU_PERMISSION_CODE) recreate()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Shizuku.addRequestPermissionResultListener(permissionListener)
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    RebootCenterScreen()
-                }
+                Surface(Modifier.fillMaxSize()) { RebootCenterScreen() }
             }
         }
     }
+
+    override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(permissionListener)
+        super.onDestroy()
+    }
 }
 
-data class RebootAction(val icon: String, val title: String, val description: String)
+data class RebootAction(val icon: String, val title: String, val command: String, val description: String)
+
+private fun hasShizukuPermission(): Boolean = runCatching {
+    Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+}.getOrDefault(false)
+
+private fun requestShizukuPermission() {
+    runCatching { Shizuku.requestPermission(SHIZUKU_PERMISSION_CODE) }
+}
+
+private fun runShizukuCommand(command: String, onResult: (String) -> Unit) {
+    Thread {
+        runCatching {
+            val process: ShizukuRemoteProcess = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+            val output = process.inputStream.bufferedReader().readText()
+            val error = process.errorStream.bufferedReader().readText()
+            process.waitFor()
+            if (error.isNotBlank()) error.trim()
+            else if (output.isNotBlank()) output.trim()
+            else "Command sent successfully."
+        }.onSuccess(onResult)
+            .onFailure { onResult("Failed: ${it.message ?: "unknown error"}") }
+    }.start()
+}
 
 @Composable
 private fun RebootCenterScreen() {
     var message by remember { mutableStateOf("Ready") }
+    var permissionState by remember { mutableStateOf(hasShizukuPermission()) }
+    val scope = rememberCoroutineScope()
     val shizukuRunning = remember { runCatching { Shizuku.pingBinder() }.getOrDefault(false) }
+
     val actions = listOf(
-        RebootAction("🔄", "Restart", "Restart Android normally"),
-        RebootAction("⚡", "Bootloader", "Reboot to bootloader when supported"),
-        RebootAction("🛠", "Recovery", "Reboot to recovery when supported"),
-        RebootAction("🔌", "Power off", "Power the device down when supported")
+        RebootAction("🔄", "Restart", "reboot", "Restart Android normally"),
+        RebootAction("⚡", "Bootloader", "reboot bootloader", "Reboot to bootloader / fastboot when supported"),
+        RebootAction("🛠", "Recovery", "reboot recovery", "Reboot to recovery when supported"),
+        RebootAction("🔌", "Power off", "reboot -p", "Power the device down when supported")
     )
 
     LazyColumn(
@@ -60,35 +101,45 @@ private fun RebootCenterScreen() {
         item {
             Text("⚡ RebootCenter", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(6.dp))
-            Text("Modern reboot controls with optional Shizuku support")
+            Text("Shizuku-powered reboot controls")
             Spacer(Modifier.height(14.dp))
-
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(if (shizukuRunning) "🟢 Shizuku connected" else "🟠 Shizuku unavailable")
+                    Text(if (shizukuRunning) "🟢 Shizuku connected" else "🔴 Shizuku not running")
                     Spacer(Modifier.height(4.dp))
-                    Text(if (shizukuRunning) "Privileged operations can be enabled in later builds." else "Start Shizuku and grant permission to enable advanced controls.")
+                    Text(if (permissionState) "✅ RebootCenter has Shizuku permission" else "🔐 Permission is required for reboot actions")
+                    Spacer(Modifier.height(10.dp))
+                    if (shizukuRunning && !permissionState) {
+                        Button(onClick = { requestShizukuPermission() }) {
+                            Text("Grant Shizuku Permission")
+                        }
+                    }
                 }
             }
-
             Spacer(Modifier.height(8.dp))
             Text("Actions", style = MaterialTheme.typography.titleLarge)
         }
 
         items(actions) { action ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text("${action.icon}  ${action.title}", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         Text(action.description)
                     }
-                    Button(onClick = { message = "${action.title}: implementation coming next" }) {
-                        Text("Run")
-                    }
+                    Button(
+                        enabled = permissionState,
+                        onClick = {
+                            message = "Running ${action.title}…"
+                            runShizukuCommand(action.command) { result ->
+                                scope.launch(Dispatchers.Main) {
+                                    message = "${action.title}: $result"
+                                    permissionState = hasShizukuPermission()
+                                }
+                            }
+                        }
+                    ) { Text("Run") }
                 }
             }
         }
@@ -97,7 +148,7 @@ private fun RebootCenterScreen() {
             Spacer(Modifier.height(4.dp))
             Text("Status: $message")
             Spacer(Modifier.height(12.dp))
-            Text("RebootCenter never performs destructive data wipes from the reboot menu.")
+            Text("⚠️ RebootCenter does not unlock bootloaders, wipe data, or flash partitions.")
         }
     }
 }
