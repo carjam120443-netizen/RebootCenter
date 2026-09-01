@@ -1,7 +1,11 @@
 package com.carjam.rebootcenter
 
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.IBinder
+import android.os.Parcel
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -30,9 +34,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
-import rikka.shizuku.ShizukuRemoteProcess
 
 private const val SHIZUKU_PERMISSION_CODE = 100
+private const val EXECUTE_TRANSACTION = IBinder.FIRST_CALL_TRANSACTION
 
 class MainActivity : ComponentActivity() {
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, _ ->
@@ -51,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         Shizuku.removeRequestPermissionResultListener(permissionListener)
+        ShizukuCommandRunner.unbind()
         super.onDestroy()
     }
 }
@@ -65,19 +70,80 @@ private fun requestShizukuPermission() {
     runCatching { Shizuku.requestPermission(SHIZUKU_PERMISSION_CODE) }
 }
 
-private fun runShizukuCommand(command: String, onResult: (String) -> Unit) {
-    Thread {
+private object ShizukuCommandRunner {
+    private var service: IBinder? = null
+    private var connection: ServiceConnection? = null
+
+    fun bind() {
+        if (!hasShizukuPermission() || service != null || connection != null) return
+
+        val args = Shizuku.UserServiceArgs(
+            ComponentName("com.carjam.rebootcenter", RebootUserService::class.java.name)
+        )
+            .daemon(false)
+            .debuggable(true)
+            .version(1)
+            .tag("reboot-command-service")
+
+        val newConnection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                service = binder
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                service = null
+                connection = null
+            }
+        }
+
+        connection = newConnection
         runCatching {
-            val process: ShizukuRemoteProcess = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
-            val output = process.inputStream.bufferedReader().readText()
-            val error = process.errorStream.bufferedReader().readText()
-            process.waitFor()
-            if (error.isNotBlank()) error.trim()
-            else if (output.isNotBlank()) output.trim()
-            else "Command sent successfully."
-        }.onSuccess(onResult)
-            .onFailure { onResult("Failed: ${it.message ?: "unknown error"}") }
-    }.start()
+            Shizuku.bindUserService(args, newConnection)
+        }.onFailure {
+            service = null
+            connection = null
+        }
+    }
+
+    fun run(command: String, onResult: (String) -> Unit) {
+        Thread {
+            bind()
+            val binder = service
+            if (binder == null) {
+                onResult("Failed: Shizuku UserService is not connected yet. Try again.")
+                return@Thread
+            }
+
+            runCatching {
+                val data = Parcel.obtain()
+                val reply = Parcel.obtain()
+                try {
+                    data.writeString(command)
+                    binder.transact(EXECUTE_TRANSACTION, data, reply, 0)
+                    reply.readString() ?: "Command completed."
+                } finally {
+                    data.recycle()
+                    reply.recycle()
+                }
+            }.onSuccess(onResult)
+                .onFailure { onResult("Failed: ${it.message ?: "unknown error"}") }
+        }.start()
+    }
+
+    fun unbind() {
+        val currentConnection = connection ?: return
+        runCatching {
+            val args = Shizuku.UserServiceArgs(
+                ComponentName("com.carjam.rebootcenter", RebootUserService::class.java.name)
+            )
+                .daemon(false)
+                .version(1)
+                .tag("reboot-command-service")
+            Shizuku.unbindUserService(args, currentConnection, true)
+        }
+        service = null
+        connection = null
+    }
 }
 
 @Composable
@@ -132,7 +198,7 @@ private fun RebootCenterScreen() {
                         enabled = permissionState,
                         onClick = {
                             message = "Running ${action.title}…"
-                            runShizukuCommand(action.command) { result ->
+                            ShizukuCommandRunner.run(action.command) { result ->
                                 scope.launch(Dispatchers.Main) {
                                     message = "${action.title}: $result"
                                     permissionState = hasShizukuPermission()
