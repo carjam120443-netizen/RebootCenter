@@ -93,12 +93,19 @@ private object ShizukuCommandRunner {
 
         val newConnection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-                service = binder
+                synchronized(this@ShizukuCommandRunner) {
+                    service = binder
+                    (this@ShizukuCommandRunner as Any).let { }
+                    this@ShizukuCommandRunner.notifyServiceConnected()
+                }
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
-                service = null
-                connection = null
+                synchronized(this@ShizukuCommandRunner) {
+                    service = null
+                    connection = null
+                    notifyAllWaiters()
+                }
             }
         }
 
@@ -108,15 +115,36 @@ private object ShizukuCommandRunner {
         }.onFailure {
             service = null
             connection = null
+            synchronized(this) { notifyAllWaiters() }
         }
     }
+
+    private fun notifyServiceConnected() {
+        notifyAllWaiters()
+    }
+
+    private fun notifyAllWaiters() {
+        synchronized(waitLock) { waitLock.notifyAll() }
+    }
+
+    private val waitLock = Object()
 
     fun run(command: String, onResult: (String) -> Unit) {
         Thread {
             bind()
+
+            val deadline = System.currentTimeMillis() + 5000
+            while (service == null && connection != null && System.currentTimeMillis() < deadline) {
+                synchronized(waitLock) {
+                    if (service == null) {
+                        runCatching { waitLock.wait(250) }
+                    }
+                }
+            }
+
             val binder = service
             if (binder == null) {
-                onResult("Failed: Shizuku UserService is not connected yet. Try again.")
+                onResult("Failed: Shizuku UserService could not connect. Check that Shizuku permission is granted, then try again.")
                 return@Thread
             }
 
@@ -159,7 +187,6 @@ private fun RebootCenterScreen() {
     var shizukuRunning by remember { mutableStateOf(isShizukuRunning()) }
     val scope = rememberCoroutineScope()
 
-    // Keep the Shizuku status live instead of only checking it once when the UI starts.
     LaunchedEffect(Unit) {
         while (true) {
             shizukuRunning = isShizukuRunning()
@@ -212,7 +239,7 @@ private fun RebootCenterScreen() {
                     Button(
                         enabled = permissionState,
                         onClick = {
-                            message = "Running ${action.title}…"
+                            message = "Connecting to Shizuku UserService…"
                             ShizukuCommandRunner.run(action.command) { result ->
                                 scope.launch(Dispatchers.Main) {
                                     message = "${action.title}: $result"
